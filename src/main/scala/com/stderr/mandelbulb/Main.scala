@@ -20,26 +20,30 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    val scene = Scene(800, 800)
-//    val rayMarcher = RayMarcher(scene)
+    // Simple scene generation
+    // val rayMarcher = RayMarcher(scene)
     // the pixels of the image as (pixel, ray)
     // val marchedRays = rayMarcher.computeScene(mandelbulb)
-    val marchedRays = sparkParallelComputeScene(scene, mandelbulb)
-    writePPM(scene, marchedRays)
+    val imageWidth = 400
+    val imageHeight = 400
+    val marchedRays = sparkParallelComputeScene(imageWidth, imageHeight, mandelbulb)
+    writePPM(imageWidth, imageHeight, marchedRays)
   }
 
-  def sparkParallelComputeScene(scene: Scene, DE: Vec3 => Double): Seq[(Option[Pixel], Option[MarchedRay])] = {
+  def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int, DE: Vec3 => Double): Seq[(Option[Pixel], Option[MarchedRay])] = {
     BasicConfigurator.configure()
     Logger.getRootLogger.setLevel(Level.ERROR)
 
     val conf = new SparkConf().setAppName("mandelbulb").setMaster("local")
     val sc = new SparkContext(conf)
 
-    val xDimension = sc.parallelize(0 to scene.imageWidth - 1, 8)
-    val yDimension = sc.parallelize(0 to scene.imageHeight - 1, 8)
+    val scenes = sc.parallelize(1 to 1).map(Scene(imageWidth, imageHeight, _))
+    val xDimension = sc.parallelize(0 to imageWidth - 1, 8)
+    val yDimension = sc.parallelize(0 to imageHeight - 1, 8)
     val xy = xDimension.cartesian(yDimension).map(Point(_))
-    val rays = xy.map((p: Point) => makeRay(scene, p, DE))
-    val pixels = rays.map((m: Option[MarchedRay]) => makePixel(scene, m, DE))
+
+    val rays = xy.cartesian(scenes).map((p: (Point, Scene)) => makeRay(p._2, p._1, DE))
+    val pixels = rays.map((m: Option[MarchedRay]) => makePixel(m, DE))
     pixels.sortBy(sortKey).collect().toSeq
   }
 
@@ -48,20 +52,20 @@ object Main {
     marcher.computeRay(point, DE)
   }
 
-  def makePixel(scene: Scene, marchedRay: Option[MarchedRay], DE: Vec3 => Double):(Option[Pixel],Option[MarchedRay]) = {
-    val marcher = new RayMarcher(scene)
-    if (marchedRay.isDefined) (ColorComputer.computeColor(marcher.lightDirection, marchedRay.get, DE), marchedRay) else (Some(Pixel(0, 0, 0)), marchedRay)
+  def makePixel(marchedRay: Option[MarchedRay], DE: Vec3 => Double):(Option[Pixel],Option[MarchedRay]) = {
+    if (marchedRay.isDefined) (ColorComputer.computeColor(new RayMarcher(marchedRay.get.scene).lightDirection, marchedRay.get, DE), marchedRay) else (Some(Pixel(0, 0, 0)), marchedRay)
   }
 
-  // Make a sortable key by x,y location
-  def sortKey(pair: (Option[Pixel], Option[MarchedRay])): Long = {
-    if (pair._2.isDefined) pair._2.get.point.x + pair._2.get.point.y * pair._2.get.scene.imageWidth
-    else Long.MaxValue
+  def sortKey(pair: (Option[Pixel], Option[MarchedRay])): Tuple3[Int, Int, Int] = {
+    pair match {
+      case (_, Some(ray)) => (ray.scene.frame, ray.point.x, ray.point.y)
+      case _ => (Int.MaxValue, Int.MaxValue, Int.MaxValue)
+    }
   }
 
-  def writePPM(scene: Scene, marchedRays: Seq[(Option[Pixel], Option[MarchedRay])]) = {
+  def writePPM(imageWidth: Int, imageHeight: Int, marchedRays: Seq[(Option[Pixel], Option[MarchedRay])]) = {
     val out = new BufferedOutputStream(new FileOutputStream("t.ppm"))
-    val header = s"P3\n${scene.imageWidth} ${scene.imageHeight}\n255\n"
+    val header = s"P3\n$imageWidth $imageHeight\n255\n"
     out.write(header.getBytes)
     for (marchedRay <- marchedRays;
          pixel <- marchedRay._1;
@@ -96,7 +100,7 @@ object Main {
   }
 
   def mandelbulb(pos: Vec3): Double = {
-    val Iterations = 40.0
+    val Iterations = 20.0
     val Power = 8
     var z = Vec3(pos.x, pos.y, pos.z)
     var dr = 1.0

@@ -98,8 +98,8 @@ case class RayMarcher(scene: Scene) {
   }
 
   // Construction calculations
-  val lightAngle = 140.0
-  val viewAngle = 150.0
+  val lightAngle = (140.0 + scene.frame * 2) % 360;
+  val viewAngle = (150.0 + scene.frame * 2) % 360;
   val rad = toRad(lightAngle)
   val lightX = Math.cos(rad) * scene.DEPTH_OF_FIELD / 2.0
   val lightZ = Math.sin(rad) * scene.DEPTH_OF_FIELD / 2.0
