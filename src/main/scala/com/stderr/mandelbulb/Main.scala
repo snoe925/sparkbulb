@@ -20,7 +20,7 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    val scene = Scene(400, 400)
+    val scene = Scene(800, 800)
 //    val rayMarcher = RayMarcher(scene)
     // the pixels of the image as (pixel, ray)
     // val marchedRays = rayMarcher.computeScene(mandelbulb)
@@ -35,8 +35,8 @@ object Main {
     val conf = new SparkConf().setAppName("mandelbulb").setMaster("local")
     val sc = new SparkContext(conf)
 
-    val xDimension = sc.parallelize(0 to scene.imageWidth - 1, 4)
-    val yDimension = sc.parallelize(0 to scene.imageHeight - 1, 4)
+    val xDimension = sc.parallelize(0 to scene.imageWidth - 1, 8)
+    val yDimension = sc.parallelize(0 to scene.imageHeight - 1, 8)
     val xy = xDimension.cartesian(yDimension).map(Point(_))
     val rays = xy.map((p: Point) => makeRay(scene, p, DE))
     val pixels = rays.map((m: Option[MarchedRay]) => makePixel(scene, m, DE))
@@ -50,7 +50,7 @@ object Main {
 
   def makePixel(scene: Scene, marchedRay: Option[MarchedRay], DE: Vec3 => Double):(Option[Pixel],Option[MarchedRay]) = {
     val marcher = new RayMarcher(scene)
-    if (marchedRay.isDefined) (marcher.computeColor(marchedRay.get, DE), marchedRay) else (Some(Pixel(0, 0, 0)), marchedRay)
+    if (marchedRay.isDefined) (ColorComputer.computeColor(marcher.lightDirection, marchedRay.get, DE), marchedRay) else (Some(Pixel(0, 0, 0)), marchedRay)
   }
 
   // Make a sortable key by x,y location
@@ -80,45 +80,9 @@ object Main {
     ImageIO.write(bi, "png", new java.io.File("t.png"))
   }
 
-    def mainX(args: Array[String]):Unit = {
-    val startTime = System.currentTimeMillis()
-    BasicConfigurator.configure()
-    Logger.getRootLogger.setLevel(Level.ERROR)
-
-    val conf = new SparkConf().setAppName("mandelbulb").setMaster("local")
-    val sc = new SparkContext(conf)
-
-    val width = 400
-    val height = 400
-    val scene = Scene(400, 400)
-    val rayMarcher = RayMarcher(scene)
-//    val pixels = rayMarcher.computeScene(DE)
-//    val rayMarcher = RayMarcher(canvas, mandelbulb)
-/***    val marchers = Array.fill(height - 1){RayMarcher(new Canvas(width, height), mandelbulb)}
-    marchers.foreach(_.setupScene())
-    val marcherWithIndex = marchers.zipWithIndex
-    sc.parallelize(marcherWithIndex, 24).map(march).collect
-    //rayMarcher.draw()
-//    writeImageFile(marchers(0))
-  */
-    println("elapsed = " + (System.currentTimeMillis() - startTime))
-  }
-
- // def march(pair: (RayMarcher, Int)): Unit = pair._1.draw(pair._2)
-
   def sphere(v : Vec3): Double = {
     v.length - 1.0
   }
-
-  /*
-   * DE for a sphere
-
-  def sphere(sphereLocation: Vec3, size: Double, z: Vec3): Double =  {
-    val v = z - sphereLocation
-    val l = v.length
-    l - size
-  }
-  */
 
   def writeImageFile(canvas: Canvas) = {
     val bi: BufferedImage = new BufferedImage(canvas.width, canvas.height, BufferedImage.TYPE_INT_RGB)
@@ -132,7 +96,7 @@ object Main {
   }
 
   def mandelbulb(pos: Vec3): Double = {
-    val Iterations = 20.0
+    val Iterations = 40.0
     val Power = 8
     var z = Vec3(pos.x, pos.y, pos.z)
     var dr = 1.0
