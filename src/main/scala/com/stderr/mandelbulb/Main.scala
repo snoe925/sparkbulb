@@ -24,27 +24,29 @@ object Main {
     // val rayMarcher = RayMarcher(scene)
     // the pixels of the image as (pixel, ray)
     // val marchedRays = rayMarcher.computeScene(mandelbulb)
+    // writePPM(imageWidth, imageHeight, marchedRays)
     val imageWidth = 400
     val imageHeight = 400
-    val marchedRays = sparkParallelComputeScene(imageWidth, imageHeight, mandelbulb)
-    writePPM(imageWidth, imageHeight, marchedRays)
+    sparkParallelComputeScene(imageWidth, imageHeight, mandelbulb)
   }
 
-  def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int, DE: Vec3 => Double): Seq[(Option[Pixel], Option[MarchedRay])] = {
+  def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int, DE: Vec3 => Double) = {
     BasicConfigurator.configure()
     Logger.getRootLogger.setLevel(Level.ERROR)
 
     val conf = new SparkConf().setAppName("mandelbulb").setMaster("local")
     val sc = new SparkContext(conf)
 
-    val scenes = sc.parallelize(1 to 1).map(Scene(imageWidth, imageHeight, _))
+    val scenes = sc.parallelize(0 to 0).map(Scene(imageWidth, imageHeight, _))
     val xDimension = sc.parallelize(0 to imageWidth - 1, 8)
     val yDimension = sc.parallelize(0 to imageHeight - 1, 8)
     val xy = xDimension.cartesian(yDimension).map(Point(_))
 
     val rays = xy.cartesian(scenes).map((p: (Point, Scene)) => makeRay(p._2, p._1, DE))
-    val pixels = rays.map((m: Option[MarchedRay]) => makePixel(m, DE))
-    pixels.sortBy(sortKey).collect().toSeq
+    val pixels: RDD[(Option[Pixel], Option[MarchedRay])] = rays.map((m: Option[MarchedRay]) => makePixel(m, DE))
+    // (frame: Int, (point: Point, pixel: Pixel))
+    val indexByFrame = pixels.map(_ match { case (Some(pixel), Some(ray)) => (ray.scene.frame, (ray.point, pixel, ray.scene))})
+    indexByFrame.groupByKey().map(writeFrame).collect()
   }
 
   def makeRay(scene: Scene, point: Point, DE: Vec3 => Double): Option[MarchedRay]  = {
@@ -61,6 +63,23 @@ object Main {
       case (_, Some(ray)) => (ray.scene.frame, ray.point.x, ray.point.y)
       case _ => (Int.MaxValue, Int.MaxValue, Int.MaxValue)
     }
+  }
+
+  def writeFrame(pair: (Int, Iterable[(Point, Pixel, Scene)])): Boolean = {
+    val fileName = "t-" + pair._1 + ".ppm"
+    val out = new BufferedOutputStream(new FileOutputStream(fileName))
+    val (_, _, scene: Scene) = pair._2.head
+    val header = s"P3\n${scene.imageWidth} ${scene.imageHeight}\n255\n"
+    out.write(header.getBytes)
+    def sortFunc(left: (Point, Pixel, Scene), right: (Point, Pixel, Scene)): Boolean = {
+      val (l, _, _) = left
+      val (r, _, _) = right
+      l.y < r.y || (l.y == r.y && l.x < r.x)
+    }
+    val sorted = pair._2.toSeq.sortWith(sortFunc)
+    for ((point, pixel, scene) <- sorted) out.write(s"${pixel.red} ${pixel.red} ${pixel.red}\n".getBytes())
+    out.close()
+    true
   }
 
   def writePPM(imageWidth: Int, imageHeight: Int, marchedRays: Seq[(Option[Pixel], Option[MarchedRay])]) = {

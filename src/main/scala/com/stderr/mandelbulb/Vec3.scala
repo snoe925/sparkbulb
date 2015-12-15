@@ -59,7 +59,7 @@ class Vec3(var x: Double, var y: Double, var z: Double) extends Serializable {
   }
 
   def crossProduct(v: Vec3): Vec3 = {
-    val xt = y * v.y - v.z * y
+    val xt = z * v.y - v.z * y
     val yt = v.z * x - v.x * z
     val zt = v.x * y - v.y * x
     Vec3(xt, yt, zt)
