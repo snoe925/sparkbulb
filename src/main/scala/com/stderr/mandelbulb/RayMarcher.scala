@@ -1,14 +1,34 @@
 package com.stderr.mandelbulb
 
-import scala.collection.immutable.IndexedSeq
-
-case class Scene (imageWidth: Int, imageHeight: Int, frame: Int = 0) {
+case class Scene (imageWidth: Int, imageHeight: Int, frame: Int = 0) extends Ordered[Scene] {
   val DEPTH_OF_FIELD = 2.5
   val eyeDistanceFromNearField = 2.2
 
   val cHalfWidth = imageWidth.toDouble / 2.0
   val pixel = DEPTH_OF_FIELD / ((imageHeight.toDouble + imageWidth.toDouble) / 2.0)
   val halfPixel = pixel / 2.0
+
+  private def toRad(angle: Double) = {
+    angle * Math.PI / 180.0
+  }
+
+  // Construction calculations
+  val lightAngle = (140.0 + frame * 2) % 360;
+  val viewAngle = (150.0 + frame * 2) % 360;
+  val rad = toRad(lightAngle)
+  val lightX = Math.cos(rad) * DEPTH_OF_FIELD / 2.0
+  val lightZ = Math.sin(rad) * DEPTH_OF_FIELD / 2.0
+
+  val lightLocation: Vec3 = Vec3(lightX, (DEPTH_OF_FIELD / 2), lightZ)
+  //normalize(subtract(setTo(lightDirection, NUL), lightLocation));
+  val lightDirection = (Vec3() - lightLocation).normalize
+
+
+  val viewRad = toRad(viewAngle)
+  val viewX = Math.cos(viewRad) * DEPTH_OF_FIELD / 2.0
+  val viewZ = Math.sin(viewRad) * DEPTH_OF_FIELD / 2.0
+
+  def compare(that: Scene) = this.frame - that.frame
 
   lazy val points = for (x <- 0 to imageWidth - 1;
                          y <- 0 to imageHeight -1) yield Some(Point(x, y))
@@ -31,7 +51,7 @@ case class RayMarcher(scene: Scene) {
   def computeScanLine(y: Int, DE: Vec3 => Double) = {
     for (x <- 0 to scene.imageWidth - 1;
          ray <- computeRay(Point(x, y), DE);
-         pixel <- ColorComputer.computeColor(lightDirection, ray, DE)) yield (Some(pixel), Some(ray))
+         pixel <- ColorComputer.computeColor(scene.lightDirection, ray, DE)) yield (Some(pixel), Some(ray))
   }
 
   def computeRay(point: Point, DE: Vec3 => Double) = {
@@ -92,7 +112,7 @@ case class RayMarcher(scene: Scene) {
       distanceFromCamera, iterations))
   }
 
-
+/*
   private def toRad(angle: Double) = {
     angle * Math.PI / 180.0
   }
@@ -112,7 +132,8 @@ case class RayMarcher(scene: Scene) {
   val viewRad = toRad(viewAngle)
   val viewX = Math.cos(viewRad) * scene.DEPTH_OF_FIELD / 2.0
   val viewZ = Math.sin(viewRad) * scene.DEPTH_OF_FIELD / 2.0
-  val nearFieldLocation = Vec3(viewX, 0.0, viewZ)
+*/
+  val nearFieldLocation = Vec3(scene.viewX, 0.0, scene.viewZ)
 
   // normalize(subtract(setTo(viewDirection, NUL), nearFieldLocation));
   val viewDirection = (Vec3() - nearFieldLocation).normalize

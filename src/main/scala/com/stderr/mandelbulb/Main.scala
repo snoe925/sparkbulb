@@ -1,17 +1,11 @@
 package com.stderr.mandelbulb
 
-import java.awt.Color
 import java.io.{BufferedOutputStream, FileOutputStream}
 
 import org.apache.log4j.{Level, Logger, BasicConfigurator}
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
-import java.awt.image.BufferedImage
-import javax.imageio.ImageIO
-
 import org.apache.spark.rdd.RDD
-
-import scala.collection.immutable.IndexedSeq
 
 /*
 * Ray marching MandelBulb in Scala
@@ -20,33 +14,43 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    // Simple scene generation
-    // val rayMarcher = RayMarcher(scene)
-    // the pixels of the image as (pixel, ray)
-    // val marchedRays = rayMarcher.computeScene(mandelbulb)
-    // writePPM(imageWidth, imageHeight, marchedRays)
     val imageWidth = 400
     val imageHeight = 400
-    sparkParallelComputeScene(imageWidth, imageHeight, mandelbulb)
+    val master = if (args.length > 0) args(0) else "local"
+    sparkParallelComputeScene(imageWidth, imageHeight, mandelbulb, master)
   }
 
-  def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int, DE: Vec3 => Double) = {
+  def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int, DE: Vec3 => Double, master: String) = {
     BasicConfigurator.configure()
     Logger.getRootLogger.setLevel(Level.ERROR)
 
-    val conf = new SparkConf().setAppName("mandelbulb").setMaster("local")
+    val conf = new SparkConf().setAppName("mandelbulb").setMaster(master)
     val sc = new SparkContext(conf)
 
-    val scenes = sc.parallelize(0 to 0).map(Scene(imageWidth, imageHeight, _))
+    // RDD[Scene]
+    val scenes = sc.parallelize(0 to 1).map(Scene(imageWidth, imageHeight, _))
     val xDimension = sc.parallelize(0 to imageWidth - 1, 8)
     val yDimension = sc.parallelize(0 to imageHeight - 1, 8)
-    val xy = xDimension.cartesian(yDimension).map(Point(_))
-
-    val rays = xy.cartesian(scenes).map((p: (Point, Scene)) => makeRay(p._2, p._1, DE))
-    val pixels: RDD[(Option[Pixel], Option[MarchedRay])] = rays.map((m: Option[MarchedRay]) => makePixel(m, DE))
-    // (frame: Int, (point: Point, pixel: Pixel))
-    val indexByFrame = pixels.map(_ match { case (Some(pixel), Some(ray)) => (ray.scene.frame, (ray.point, pixel, ray.scene))})
-    indexByFrame.groupByKey().map(writeFrame).collect()
+    // RDD[Point]
+    val xy = xDimension.cartesian(yDimension).map(_ match { case (x,y) => Point(x, y) })
+    // RDD[Option[MarchedRay]]
+    val rays: RDD[(Scene, Point, Option[MarchedRay])] = scenes.cartesian(xy).map((p: (Scene, Point)) => {
+      val ray = makeRay(p._1, p._2, DE)
+      (p._1, p._2, ray)
+    })
+    // RDD[(Option[Pixel], Option[MarchedRay])]
+    def mp(p:(Scene, Point, Option[MarchedRay])) = makePixel(p._1, p._2, p._3, DE)
+    val pixels: RDD[(Scene, Point, Option[Pixel], Option[MarchedRay])] = rays.map(mp)
+    // RDD[(frame: Int, (point: Point, pixel: Pixel))]
+    val indexByFrame: RDD[(Int, (Scene, Point, Pixel))] = pixels.map(_ match {
+      case (scene, point, Some(pixel), Some(ray)) => (scene.frame, (scene, point, pixel))
+      case (scene, point, _, _) => (scene.frame, (scene, point, Pixel(255, 0, 0)))
+    })
+    // RDD[(Int, Iterable[(Scene, Point, Pixel)])]
+    val pixelsGroupedByFrame = indexByFrame.groupByKey()
+    // RDD[(Int, Seq[(Scene, Point, Pixel)])]
+    val sortedPixels = pixelsGroupedByFrame.mapValues(_.toSeq.sorted)
+    sortedPixels.mapValues(writeFrame).collect()
   }
 
   def makeRay(scene: Scene, point: Point, DE: Vec3 => Double): Option[MarchedRay]  = {
@@ -54,68 +58,34 @@ object Main {
     marcher.computeRay(point, DE)
   }
 
-  def makePixel(marchedRay: Option[MarchedRay], DE: Vec3 => Double):(Option[Pixel],Option[MarchedRay]) = {
-    if (marchedRay.isDefined) (ColorComputer.computeColor(new RayMarcher(marchedRay.get.scene).lightDirection, marchedRay.get, DE), marchedRay) else (Some(Pixel(0, 0, 0)), marchedRay)
+  def makePixel(scene: Scene, point: Point, marchedRay: Option[MarchedRay], DE: Vec3 => Double):(Scene, Point, Option[Pixel],Option[MarchedRay]) = {
+    if (marchedRay.isDefined)
+      (scene, point, ColorComputer.computeColor(scene.lightDirection, marchedRay.get, DE), marchedRay)
+    else (scene, point, Some(Pixel(0, 0, 0)), marchedRay)
   }
 
-  def sortKey(pair: (Option[Pixel], Option[MarchedRay])): Tuple3[Int, Int, Int] = {
+  def sortKeyX(pair: (Option[Pixel], Option[MarchedRay])): Tuple3[Int, Int, Int] = {
     pair match {
       case (_, Some(ray)) => (ray.scene.frame, ray.point.x, ray.point.y)
       case _ => (Int.MaxValue, Int.MaxValue, Int.MaxValue)
     }
   }
 
-  def writeFrame(pair: (Int, Iterable[(Point, Pixel, Scene)])): Boolean = {
-    val fileName = "t-" + pair._1 + ".ppm"
-    val out = new BufferedOutputStream(new FileOutputStream(fileName))
-    val (_, _, scene: Scene) = pair._2.head
-    val header = s"P3\n${scene.imageWidth} ${scene.imageHeight}\n255\n"
-    out.write(header.getBytes)
-    def sortFunc(left: (Point, Pixel, Scene), right: (Point, Pixel, Scene)): Boolean = {
-      val (l, _, _) = left
-      val (r, _, _) = right
-      l.y < r.y || (l.y == r.y && l.x < r.x)
+  def writeFrame(pixels: Seq[(Scene, Point, Pixel)]): Boolean = {
+    if (pixels.isEmpty) false else {
+      val (scene: Scene, _, _) = pixels.head
+      val fileName = "frames/t%06d.ppm".format(scene.frame)
+      val out = new BufferedOutputStream(new FileOutputStream(fileName))
+      val header = s"P3\n${scene.imageWidth} ${scene.imageHeight}\n255\n"
+      out.write(header.getBytes)
+      for ((scene, point, pixel) <- pixels) out.write(s"${pixel.red} ${pixel.green} ${pixel.blue}\n".getBytes())
+      out.close()
+      true
     }
-    val sorted = pair._2.toSeq.sortWith(sortFunc)
-    for ((point, pixel, scene) <- sorted) out.write(s"${pixel.red} ${pixel.red} ${pixel.red}\n".getBytes())
-    out.close()
-    true
-  }
-
-  def writePPM(imageWidth: Int, imageHeight: Int, marchedRays: Seq[(Option[Pixel], Option[MarchedRay])]) = {
-    val out = new BufferedOutputStream(new FileOutputStream("t.ppm"))
-    val header = s"P3\n$imageWidth $imageHeight\n255\n"
-    out.write(header.getBytes)
-    for (marchedRay <- marchedRays;
-         pixel <- marchedRay._1;
-         ray <- marchedRay._2;
-         ppm <- Some(s"${pixel.red} ${pixel.green} ${pixel.blue}\n")) out.write(ppm.getBytes)
-    out.close()
-  }
-
-  def writePNG(scene:Scene, marchedRays: Seq[(Option[Pixel], Option[MarchedRay])]) = {
-    val bi: BufferedImage = new BufferedImage(scene.imageWidth, scene.imageHeight, BufferedImage.TYPE_INT_RGB)
-    for (marchedRay <- marchedRays;
-         pixel <- marchedRay._1;
-         ray <- marchedRay._2;
-         rgb <- Some(new Color(pixel.red.toInt, pixel.green.toInt, pixel.blue.toInt)))
-      yield bi.setRGB(ray.point.x, ray.point.y, rgb.getRGB())
-    ImageIO.write(bi, "png", new java.io.File("t.png"))
   }
 
   def sphere(v : Vec3): Double = {
     v.length - 1.0
-  }
-
-  def writeImageFile(canvas: Canvas) = {
-    val bi: BufferedImage = new BufferedImage(canvas.width, canvas.height, BufferedImage.TYPE_INT_RGB)
-    for (x <- 0 to canvas.width - 1) {
-      for (y <- 0 to canvas.height - 1) {
-        val rgb: Int = canvas.getRGB(Point(x, y))
-        bi.setRGB(x, y, rgb)
-      }
-    }
-    ImageIO.write(bi, "png", new java.io.File("t.png"))
   }
 
   def mandelbulb(pos: Vec3): Double = {
