@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+
+	<head>
+		<meta charset="utf-8">
+
+		<title>reveal.js – The HTML Presentation Framework</title>
+
+		<meta name="description" content="A framework for easily creating beautiful presentations using HTML">
+		<meta name="author" content="Hakim El Hattab">
+
+		<meta name="apple-mobile-web-app-capable" content="yes">
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/3.2.0/css/reveal.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/3.2.0/css/theme/black.min.css" id="theme">
+
+		<!-- Code syntax highlighting -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+
+		<!--[if lt IE 9]>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv.min.js"></script>
+		<![endif]-->
+	</head>
+
+	<body>
+
+		<div class="reveal">
+
+			<!-- Any section element inside of this container is displayed as a slide -->
+			<div class="slides">
+				<section>
+					<h1>Houston Apache Spark Meetup</h1>
+					<p>
+						<small>VJ / SN</small>
+					</p>
+				</section>
+
+				<section>
+					<h2>Patterns for this meetup</h2>
+					<ul>
+						<li>Explore our shared interest Apache Spark</li>
+						<li>Educate each other about Apache Spark</li>
+						<li>Support each other using Apache Spark</li>
+						<li>??? Apache Spark</li>
+					</ul>
+				</section>
+
+				<section>
+					<h2>Anti-patterns for this meetup</h2>
+					<ul>
+						<li>Provide a canned audience for presentations</li>
+						<li>Spend significant time on Spark alternatives</li>
+						<li>Intentionally dilute the Meetup community in other areas</li>
+					</ul>
+				</section>
+
+				<section>
+					<h2>Suggested activities</h2>
+					<ul>
+						<li>Presentations / Guest speakers / Skype video networking</li>
+						<li>Lighting talks</li>
+						<li>Sharing code on github</li>
+						<li>Experimenting with hardware and Spark</li>
+						<li>Hackday</li>
+					</ul>
+				</section>
+
+				<section>
+					<h2>Lighting Talks</h2>
+					<p>Short presentations around 5 minutes which are:</p>
+					<ul>
+						<li>Interesting</li>
+						<li>Thought generating</li>
+						<li>Insightful</li>
+						<li>Fun</li>
+					</ul>
+					<p>Ideally presented in sets, with open discussions following</p>
+				</section>
+
+				<section>
+					<h2>Tonight's presentation</h2>
+					<h3>sparkbulb</h3>
+					<p>An exercise in using Apache Spark to implement the Mandelbulb ray marcher</p>
+				</section>
+
+				<section>
+					<p>The Mandelbrot set</p>
+					<p>The Mandelbrot set is the set of complex numbers c for which the function f(z)=z²+c does not diverge when iterated, i.e., for which the sequence f(0), f(f(0)), etc., remains bounded.</p>
+					<img src="https://upload.wikimedia.org/wikipedia/commons/2/21/Mandel_zoom_00_mandelbrot_set.jpg" width="300" height="300"></img>
+				</section>
+
+				<section>
+					<h2>Mandelbulb</h2>
+					<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Power_8_mandelbulb_fractal_overview.jpg/1136px-Power_8_mandelbulb_fractal_overview.jpg" width="300" height="300"></img>
+				</section>
+
+				<section>
+					<h2>Mandelbulb</h2>
+					<p>The Mandelbulb is a three-dimensional fractal, constructed by Daniel White and Paul Nylander using spherical coordinates in 2009.</p>
+					<p>A canonical 3-dimensional Mandelbrot set does not exist, since there is no 3-dimensional analogue of the 2-dimensional space of complex numbers. It is possible to construct Mandelbrot sets in 4 dimensions using quaternions. However, this set does not exhibit detail at all scales like the 2D Mandelbrot set does.</p>
+				</section>
+
+				<section>
+					<h2>Slice a mandelbulb and we can see the Mandelbrot set</h2>
+					<img src="http://mandelbulb.com/wp-content/uploads/2012/11/Mandelbulb_limits_Mandelbrot_Set-Haggett_Matthew.jpg"></img>
+				</section>
+
+				<section>
+					<p>
+						The colored areas on the Mandelbrot set are mapped to the iterators needed to determine inclusion in the set.
+					</p>
+					<img src="https://upload.wikimedia.org/wikipedia/commons/2/21/Mandel_zoom_00_mandelbrot_set.jpg" width="300" height="300"></img>
+				</section>
+
+				<section>
+					<h2>Ray marching</h2>
+					<p>Classic raytracing shoots one (or more) rays per pixel and calculate where the rays intersect the geometry in the scene.</p>
+					<p>Ray marching uses a distance estimation function for objects.  This creates a reasonable 3d image, but is not a real calculation of physics of light.</p>
+					</section>
+				<section>
+					<h2>Ray marching in 2d</h2>
+					<p>Each circle represents an iteration of the distance estimator (DE)</p>
+					<img src="http://blog.hvidtfeldts.net/media/ray.png"></img>
+				</section>
+
+				<section>
+					<p>Ray marching and DE are "embrassingly" parallel.</p>
+					<p>Let's implement that parallel solution in Spark and make an animated picture.</p>
+				</section>
+
+				<section>
+					<ol>
+						<li>Make a set of "scenes" 0..n</li>
+						<li>Each scene as N Points in the image: x,y coordinates </li>
+						<li>For each Point we will compute a ray with the iterations of the DE</li>
+						<li>For each (Point, Ray) we will make a Pixel, a RGB and shaded color (ShaderToy)</li>
+						<li>For each Scene Point and Pixel write a PPM file</li>
+					</ol>
+				</section>
+
+				<section>
+					<h3>Some basic timings compare to GPU/C++ code</h3>
+					<table>
+						<thead>
+						<tr><th>Implementation</th><th>Time Taken (sec)</th></tr>
+						</thead>
+						<tbody>
+						<tr><td>C++ Macbook Air (1 core)</td><td>983 sec</td></tr>
+						<tr><td>C++ NVIDIA GTX 980 (OpenCL)</td><td>149 sec</td></tr>
+						<tr><td>C++ Intel i7 (16 cores/32 threads) + O3</td><td>107 sec</td></tr>
+						<tr><td>C++ NVIDIA GTX 980 (OpenCL) + fast flags</td><td>43 sec</td></tr>
+						<tr><td>C++ NVIDIA GTX 980 (OpenCL) + fast flags +float</td><td>1.1 sec</td></tr>
+						<tr><td>Apache Spark 100 cores 6400 partitions</td><td>300 sec</td></tr>
+						<tr><td>Apache Spark 1000 cores 6400 partitions</td><td>80 sec</td></tr>
+						<tr><td>Apache Spark 1000+more cores 6400 partitions</td><td>63 sec</td></tr>
+						</tbody>
+					</table>
+				</section>
+
+			</div>
+
+		</div>
+
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/headjs/1.0.3/head.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/3.2.0/js/reveal.min.js"></script>
+
+		<script>
+
+			// Full list of configuration options available at:
+			// https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				controls: true,
+				progress: true,
+				history: true,
+				center: true,
+
+				transition: 'slide', // none/fade/slide/convex/concave/zoom
+
+				// Optional reveal.js plugins
+				dependencies: [
+					{ src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+					{ src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+					{ src: 'plugin/zoom-js/zoom.js', async: true },
+					{ src: 'plugin/notes/notes.js', async: true }
+				]
+			});
+
+		</script>
+
+	</body>
+</html>
