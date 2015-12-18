@@ -4,4 +4,7 @@
 
 target/
 
-frames/
+frames/*
+
+stats.html
+presentation.html

@@ -17,30 +17,41 @@ object Main {
     val imageWidth = 400
     val imageHeight = 400
     val master = if (args.length > 0) args(0) else "local"
-    sparkParallelComputeScene(imageWidth, imageHeight, mandelbulb, master)
+    sparkParallelComputeScene(imageWidth, imageHeight,
+      sphere, // mandelbulb or scene for testing framework
+      master)
   }
 
   def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int, DE: Vec3 => Double, master: String) = {
     BasicConfigurator.configure()
     Logger.getRootLogger.setLevel(Level.ERROR)
 
-    val conf = new SparkConf().setAppName("mandelbulb").setMaster(master)
+    var conf = new SparkConf().setAppName("mandelbulb")
+    // When running with spark submit, we do not need to set the master
+    if (master.startsWith("local")) conf.setMaster(master)
     val sc = new SparkContext(conf)
 
-    // RDD[Scene]
-    val scenes = sc.parallelize(0 to 1).map(Scene(imageWidth, imageHeight, _))
-    val xDimension = sc.parallelize(0 to imageWidth - 1, 8)
-    val yDimension = sc.parallelize(0 to imageHeight - 1, 8)
-    // RDD[Point]
-    val xy = xDimension.cartesian(yDimension).map(_ match { case (x,y) => Point(x, y) })
-    // RDD[Option[MarchedRay]]
-    val rays: RDD[(Scene, Point, Option[MarchedRay])] = scenes.cartesian(xy).map((p: (Scene, Point)) => {
-      val ray = makeRay(p._1, p._2, DE)
-      (p._1, p._2, ray)
-    })
+    // RDD[Scene] We rotate 2 degrees per frame we need 180 frames for a full rotation
+    val scenes = sc.parallelize(0 to 179).map(Scene(imageWidth, imageHeight, _))
+    // 8 partitions is not optimized, depends on your compute power
+    val xDimension: RDD[Int] = sc.parallelize(0 to imageWidth - 1, 8)
+    val yDimension: RDD[Int] = sc.parallelize(0 to imageHeight - 1, 8)
+    val xy: RDD[Point] = xDimension.cartesian(yDimension).map(_ match { case (x,y) => Point(x, y) })
+    val sceneXY: RDD[(Scene, Point)] = scenes.cartesian(xy)
+    // Compute the marched ray
+    val rays: RDD[(Scene, Point, Some[MarchedRay])] = sceneXY.map(_ match {
+      case (scene: Scene, point: Point) => {
+        val marcher = new RayMarcher(scene)
+        val ray = marcher.computeRay(point, DE)
+        (scene, point, ray)
+      }})
     // RDD[(Option[Pixel], Option[MarchedRay])]
-    def mp(p:(Scene, Point, Option[MarchedRay])) = makePixel(p._1, p._2, p._3, DE)
-    val pixels: RDD[(Scene, Point, Option[Pixel], Option[MarchedRay])] = rays.map(mp)
+//    def mp(p:(Scene, Point, Option[MarchedRay])) = makePixel(p._1, p._2, p._3, DE)
+    val pixels: RDD[(Scene, Point, Option[Pixel], Option[MarchedRay])] = rays.map(_ match {
+      case (scene: Scene, point: Point, Some(ray)) => (scene, point, ColorComputer.computeColor(scene.lightDirection, ray, DE), Some(ray))
+      case (scene: Scene, point: Point, ray) => (scene, point, Some(Pixel(0, 0, 0)), ray)
+
+    })
     // RDD[(frame: Int, (point: Point, pixel: Pixel))]
     val indexByFrame: RDD[(Int, (Scene, Point, Pixel))] = pixels.map(_ match {
       case (scene, point, Some(pixel), Some(ray)) => (scene.frame, (scene, point, pixel))
@@ -53,6 +64,7 @@ object Main {
     sortedPixels.mapValues(writeFrame).collect()
   }
 
+  /*
   def makeRay(scene: Scene, point: Point, DE: Vec3 => Double): Option[MarchedRay]  = {
     val marcher = new RayMarcher(scene)
     marcher.computeRay(point, DE)
@@ -70,7 +82,7 @@ object Main {
       case _ => (Int.MaxValue, Int.MaxValue, Int.MaxValue)
     }
   }
-
+*/
   def writeFrame(pixels: Seq[(Scene, Point, Pixel)]): Boolean = {
     if (pixels.isEmpty) false else {
       val (scene: Scene, _, _) = pixels.head
@@ -84,10 +96,17 @@ object Main {
     }
   }
 
+  /*
+  * Distance estimator function for sphere.
+  * See http://iquilezles.org/www/articles/distfunctions/distfunctions.htm
+  */
   def sphere(v : Vec3): Double = {
     v.length - 1.0
   }
 
+  /*
+  * Distance estimator function for mandelbulb.
+  */
   def mandelbulb(pos: Vec3): Double = {
     val Iterations = 20.0
     val Power = 8
@@ -117,4 +136,3 @@ object Main {
   }
 
 }
-

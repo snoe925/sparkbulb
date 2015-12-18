@@ -1,6 +1,6 @@
 package com.stderr.mandelbulb
 
-case class Scene (imageWidth: Int, imageHeight: Int, frame: Int = 0) extends Ordered[Scene] {
+case class Scene (imageWidth: Int, imageHeight: Int, frame: Int = 0, rotationRate: Int = 2) extends Ordered[Scene] {
   val DEPTH_OF_FIELD = 2.5
   val eyeDistanceFromNearField = 2.2
 
@@ -13,8 +13,8 @@ case class Scene (imageWidth: Int, imageHeight: Int, frame: Int = 0) extends Ord
   }
 
   // Construction calculations
-  val lightAngle = (140.0 + frame * 2) % 360;
-  val viewAngle = (150.0 + frame * 2) % 360;
+  val lightAngle = (140.0 + frame * rotationRate) % 360;
+  val viewAngle = (150.0 + frame * rotationRate) % 360;
   val rad = toRad(lightAngle)
   val lightX = Math.cos(rad) * DEPTH_OF_FIELD / 2.0
   val lightZ = Math.sin(rad) * DEPTH_OF_FIELD / 2.0
@@ -39,9 +39,7 @@ case class MarchedRay(scene: Scene, point: Point,
                       distanceFromCamera: Double, iterations: Int) {
 }
 
-case class RayMarcher(scene: Scene) {
-
-  val MAX_ITER = 5000
+case class RayMarcher(scene: Scene, MAX_ITER:Int = 5000) {
 
   def computeScene(DE: Vec3 => Double) = {
     for (y <- 0 to scene.imageHeight - 1;
@@ -112,29 +110,7 @@ case class RayMarcher(scene: Scene) {
       distanceFromCamera, iterations))
   }
 
-/*
-  private def toRad(angle: Double) = {
-    angle * Math.PI / 180.0
-  }
-
-  // Construction calculations
-  val lightAngle = (140.0 + scene.frame * 2) % 360;
-  val viewAngle = (150.0 + scene.frame * 2) % 360;
-  val rad = toRad(lightAngle)
-  val lightX = Math.cos(rad) * scene.DEPTH_OF_FIELD / 2.0
-  val lightZ = Math.sin(rad) * scene.DEPTH_OF_FIELD / 2.0
-
-  val lightLocation: Vec3 = Vec3(lightX, (scene.DEPTH_OF_FIELD / 2), lightZ)
-  //normalize(subtract(setTo(lightDirection, NUL), lightLocation));
-  val lightDirection = (Vec3() - lightLocation).normalize
-
-
-  val viewRad = toRad(viewAngle)
-  val viewX = Math.cos(viewRad) * scene.DEPTH_OF_FIELD / 2.0
-  val viewZ = Math.sin(viewRad) * scene.DEPTH_OF_FIELD / 2.0
-*/
   val nearFieldLocation = Vec3(scene.viewX, 0.0, scene.viewZ)
-
   // normalize(subtract(setTo(viewDirection, NUL), nearFieldLocation));
   val viewDirection = (Vec3() - nearFieldLocation).normalize
   //    scalarMultiply(setTo(reverseDirection, viewDirection), eyeDistanceFromNearField);

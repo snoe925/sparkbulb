@@ -92,7 +92,7 @@ window.requestAnimFrame = (function(callback) {
 var NUL = [0.0, 0.0, 0.0];
 function map(z) {
     //return mandelbulb(z);
-    return sphere(z, NUL, 1);
+    return mandelbulb(z, NUL, 1);
 }
 
 /**
