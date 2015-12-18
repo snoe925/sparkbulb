@@ -18,7 +18,7 @@ object Main {
     val imageHeight = 400
     val master = if (args.length > 0) args(0) else "local"
     sparkParallelComputeScene(imageWidth, imageHeight,
-      sphere, // mandelbulb or scene for testing framework
+      mandelbulb, // mandelbulb or scene for testing framework
       master)
   }
 
