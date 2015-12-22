@@ -19,10 +19,10 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    val imageWidth = 300
-    val imageHeight = 300
+    val imageWidth = 800
+    val imageHeight = 800
     val numScenes = 64
-    val master = if (args.length > 0) args(0) else "local"
+    val master = if (args.length > 0) args(0) else "local[16]"
     sparkParallelComputeScene(imageWidth, imageHeight, numScenes,
       mandelbulb, // use sphere for testing framework
       master)
@@ -39,10 +39,10 @@ object Main {
     if (master.startsWith("local")) conf.setMaster(master)
     val sc = new SparkContext(conf)
 
-    val scenes = sc.parallelize(0 to numScenes - 1).map(Scene(imageWidth, imageHeight, _, numScenes))
+    val scenes = sc.parallelize(0 to numScenes - 1, numScenes).map(Scene(imageWidth, imageHeight, _, numScenes))
     // 8 partitions is not optimized, depends on your compute power
-    val xDimension: RDD[Int] = sc.parallelize(0 to imageWidth - 1, 8)
-    val yDimension: RDD[Int] = sc.parallelize(0 to imageHeight - 1, 8)
+    val xDimension: RDD[Int] = sc.parallelize(0 to imageWidth - 1, Math.max(4, imageWidth / 100))
+    val yDimension: RDD[Int] = sc.parallelize(0 to imageHeight - 1, Math.max(4, imageHeight / 100))
     val xy: RDD[Point] = xDimension.cartesian(yDimension).map(_ match { case (x,y) => Point(x, y) })
     val sceneXY: RDD[(Scene, Point)] = scenes.cartesian(xy)
 
@@ -67,7 +67,11 @@ object Main {
       case (scene, point, _, _) => (scene.frame, (scene, point, Pixel(255, 0, 0)))
     })
 
+
     val indexedPixels: RDD[(Int, Iterable[(Scene, Point, Pixel)])] = indexByFrame.groupByKey()
+
+    // Keep this data as we will lookup by key
+    indexedPixels.persist()
 
     val pictures: RDD[(Int, Array[Array[Int]])] = indexedPixels.map(PixelsToWebM.toPicture(_))
     // Order the pixels in the frame in parallel
@@ -81,8 +85,8 @@ object Main {
     val encoder = new PixelsToWebM("t.webm", imageWidth, imageHeight)
     var buffers = List[ByteBuffer]()
     for (key <- 0 to numScenes - 1) {
-      val yuv = pictures.filter(_._1 == key).collect
-      val byteBuffer = encoder.encodeFrame(yuv(0)._2, imageWidth, imageHeight)
+      val yuv: Seq[Array[Array[Int]]] = pictures.lookup(key)
+      val byteBuffer = encoder.encodeFrame(yuv.head, imageWidth, imageHeight)
       encoder.writeFile(byteBuffer)
     }
     encoder.finish
