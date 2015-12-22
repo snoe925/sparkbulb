@@ -1,6 +1,6 @@
 package com.stderr.mandelbulb
 
-case class Scene (imageWidth: Int, imageHeight: Int, frame: Int = 0, rotationRate: Int = 2) extends Ordered[Scene] {
+case class Scene (imageWidth: Int, imageHeight: Int, frame: Int = 0, numScenes: Int) extends Ordered[Scene] {
   val DEPTH_OF_FIELD = 2.5
   val eyeDistanceFromNearField = 2.2
 
@@ -13,6 +13,7 @@ case class Scene (imageWidth: Int, imageHeight: Int, frame: Int = 0, rotationRat
   }
 
   // Construction calculations
+  val rotationRate = 360 / numScenes
   val lightAngle = (140.0 + frame * rotationRate) % 360;
   val viewAngle = (150.0 + frame * rotationRate) % 360;
   val rad = toRad(lightAngle)

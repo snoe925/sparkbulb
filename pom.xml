@@ -41,6 +41,11 @@
       <version>2.2.4</version>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.jcodec</groupId>
+      <artifactId>jcodec</artifactId>
+      <version>0.1.9</version>
+    </dependency>
   </dependencies>
 
   <build>
@@ -85,6 +90,9 @@
           <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
           <junitxml>.</junitxml>
           <filereports>WDF TestSuite.txt</filereports>
+          <stdout>
+            WDF
+          </stdout>
         </configuration>
         <executions>
           <execution>

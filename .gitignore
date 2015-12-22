@@ -5,3 +5,5 @@
 target/
 
 frames/*
+
+*.mp4

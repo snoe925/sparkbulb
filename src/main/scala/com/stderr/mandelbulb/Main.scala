@@ -7,6 +7,8 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.apache.spark.rdd.RDD
 
+import scala.reflect.io.File
+
 /*
 * Ray marching MandelBulb in Scala
 */
@@ -14,11 +16,11 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    val imageWidth = 400
-    val imageHeight = 400
+    val imageWidth = 300
+    val imageHeight = 300
     val master = if (args.length > 0) args(0) else "local"
     sparkParallelComputeScene(imageWidth, imageHeight,
-      mandelbulb, // mandelbulb or scene for testing framework
+      mandelbulb, // use sphere for testing framework
       master)
   }
 
@@ -30,9 +32,9 @@ object Main {
     // When running with spark submit, we do not need to set the master
     if (master.startsWith("local")) conf.setMaster(master)
     val sc = new SparkContext(conf)
+    val numScenes = 180
 
-    // RDD[Scene] We rotate 2 degrees per frame we need 180 frames for a full rotation
-    val scenes = sc.parallelize(0 to 179).map(Scene(imageWidth, imageHeight, _))
+    val scenes = sc.parallelize(0 to numScenes - 1).map(Scene(imageWidth, imageHeight, _, numScenes))
     // 8 partitions is not optimized, depends on your compute power
     val xDimension: RDD[Int] = sc.parallelize(0 to imageWidth - 1, 8)
     val yDimension: RDD[Int] = sc.parallelize(0 to imageHeight - 1, 8)
@@ -45,48 +47,36 @@ object Main {
         val ray = marcher.computeRay(point, DE)
         (scene, point, ray)
       }})
-    // RDD[(Option[Pixel], Option[MarchedRay])]
-//    def mp(p:(Scene, Point, Option[MarchedRay])) = makePixel(p._1, p._2, p._3, DE)
+    // Color each ray into a pixel
     val pixels: RDD[(Scene, Point, Option[Pixel], Option[MarchedRay])] = rays.map(_ match {
       case (scene: Scene, point: Point, Some(ray)) => (scene, point, ColorComputer.computeColor(scene.lightDirection, ray, DE), Some(ray))
       case (scene: Scene, point: Point, ray) => (scene, point, Some(Pixel(0, 0, 0)), ray)
 
     })
-    // RDD[(frame: Int, (point: Point, pixel: Pixel))]
+    // Gather the pixels grouped by scene frame
     val indexByFrame: RDD[(Int, (Scene, Point, Pixel))] = pixels.map(_ match {
       case (scene, point, Some(pixel), Some(ray)) => (scene.frame, (scene, point, pixel))
       case (scene, point, _, _) => (scene.frame, (scene, point, Pixel(255, 0, 0)))
     })
-    // RDD[(Int, Iterable[(Scene, Point, Pixel)])]
-    val pixelsGroupedByFrame = indexByFrame.groupByKey()
-    // RDD[(Int, Seq[(Scene, Point, Pixel)])]
-    val sortedPixels = pixelsGroupedByFrame.mapValues(_.toSeq.sorted)
-    sortedPixels.mapValues(writeFrame).collect()
-  }
-
-  /*
-  def makeRay(scene: Scene, point: Point, DE: Vec3 => Double): Option[MarchedRay]  = {
-    val marcher = new RayMarcher(scene)
-    marcher.computeRay(point, DE)
-  }
-
-  def makePixel(scene: Scene, point: Point, marchedRay: Option[MarchedRay], DE: Vec3 => Double):(Scene, Point, Option[Pixel],Option[MarchedRay]) = {
-    if (marchedRay.isDefined)
-      (scene, point, ColorComputer.computeColor(scene.lightDirection, marchedRay.get, DE), marchedRay)
-    else (scene, point, Some(Pixel(0, 0, 0)), marchedRay)
-  }
-
-  def sortKeyX(pair: (Option[Pixel], Option[MarchedRay])): Tuple3[Int, Int, Int] = {
-    pair match {
-      case (_, Some(ray)) => (ray.scene.frame, ray.point.x, ray.point.y)
-      case _ => (Int.MaxValue, Int.MaxValue, Int.MaxValue)
+    val pixelsGroupedByFrame: RDD[(Int, Iterable[(Scene, Point, Pixel)])] = indexByFrame.groupByKey()
+    // Order the pixels in the frame in parallel
+    val sortedPixels: RDD[(Int, Seq[(Scene, Point, Pixel)])] = pixelsGroupedByFrame.mapValues(_.toSeq.sorted)
+    // Gather the pixels from the workers by frame
+    // and encode MP4 file
+    val keys = sortedPixels.map(_._1).collect().sorted
+    val encoder = new PixmapToMP4()
+    for (key <- keys) {
+      val pixels: Array[(Int, Seq[(Scene, Point, Pixel)])] = sortedPixels.filter(_._1 == key).collect
+      encoder.encode(pixels(0)._2)
     }
+    encoder.finish
   }
-*/
+
   def writeFrame(pixels: Seq[(Scene, Point, Pixel)]): Boolean = {
     if (pixels.isEmpty) false else {
       val (scene: Scene, _, _) = pixels.head
       val fileName = "frames/t%06d.ppm".format(scene.frame)
+      File(fileName).parent.createDirectory(failIfExists = false)
       val out = new BufferedOutputStream(new FileOutputStream(fileName))
       val header = s"P3\n${scene.imageWidth} ${scene.imageHeight}\n255\n"
       out.write(header.getBytes)
