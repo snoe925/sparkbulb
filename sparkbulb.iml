@@ -140,6 +140,6 @@
     <orderEntry type="library" name="Maven: org.spark-project.spark:unused:1.0.0" level="project" />
     <orderEntry type="library" scope="TEST" name="Maven: org.scalatest:scalatest_2.10:2.2.4" level="project" />
     <orderEntry type="library" name="Maven: org.scala-lang:scala-reflect:2.10.4" level="project" />
-    <orderEntry type="module" module-name="jcodec" />
+    <orderEntry type="library" name="Maven: org.jcodec:jcodec:0.1.9" level="project" />
   </component>
 </module>

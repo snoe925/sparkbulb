@@ -1,11 +1,14 @@
 package com.stderr.mandelbulb
 
 import java.io.{BufferedOutputStream, FileOutputStream}
+import java.nio.ByteBuffer
 
 import org.apache.log4j.{Level, Logger, BasicConfigurator}
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.apache.spark.rdd.RDD
+import org.apache.spark.storage.StorageLevel
+import org.jcodec.common.model.Picture
 
 import scala.reflect.io.File
 
@@ -18,13 +21,16 @@ object Main {
   def main(args: Array[String]):Unit = {
     val imageWidth = 300
     val imageHeight = 300
+    val numScenes = 64
     val master = if (args.length > 0) args(0) else "local"
-    sparkParallelComputeScene(imageWidth, imageHeight,
+    sparkParallelComputeScene(imageWidth, imageHeight, numScenes,
       mandelbulb, // use sphere for testing framework
       master)
   }
 
-  def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int, DE: Vec3 => Double, master: String) = {
+  def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int,
+                                numScenes: Int, DE: Vec3 => Double,
+                                master: String) = {
     BasicConfigurator.configure()
     Logger.getRootLogger.setLevel(Level.ERROR)
 
@@ -32,7 +38,6 @@ object Main {
     // When running with spark submit, we do not need to set the master
     if (master.startsWith("local")) conf.setMaster(master)
     val sc = new SparkContext(conf)
-    val numScenes = 180
 
     val scenes = sc.parallelize(0 to numScenes - 1).map(Scene(imageWidth, imageHeight, _, numScenes))
     // 8 partitions is not optimized, depends on your compute power
@@ -40,6 +45,7 @@ object Main {
     val yDimension: RDD[Int] = sc.parallelize(0 to imageHeight - 1, 8)
     val xy: RDD[Point] = xDimension.cartesian(yDimension).map(_ match { case (x,y) => Point(x, y) })
     val sceneXY: RDD[(Scene, Point)] = scenes.cartesian(xy)
+
     // Compute the marched ray
     val rays: RDD[(Scene, Point, Some[MarchedRay])] = sceneXY.map(_ match {
       case (scene: Scene, point: Point) => {
@@ -47,27 +53,37 @@ object Main {
         val ray = marcher.computeRay(point, DE)
         (scene, point, ray)
       }})
+
     // Color each ray into a pixel
     val pixels: RDD[(Scene, Point, Option[Pixel], Option[MarchedRay])] = rays.map(_ match {
       case (scene: Scene, point: Point, Some(ray)) => (scene, point, ColorComputer.computeColor(scene.lightDirection, ray, DE), Some(ray))
       case (scene: Scene, point: Point, ray) => (scene, point, Some(Pixel(0, 0, 0)), ray)
 
     })
+
     // Gather the pixels grouped by scene frame
     val indexByFrame: RDD[(Int, (Scene, Point, Pixel))] = pixels.map(_ match {
       case (scene, point, Some(pixel), Some(ray)) => (scene.frame, (scene, point, pixel))
       case (scene, point, _, _) => (scene.frame, (scene, point, Pixel(255, 0, 0)))
     })
-    val pixelsGroupedByFrame: RDD[(Int, Iterable[(Scene, Point, Pixel)])] = indexByFrame.groupByKey()
+
+    val indexedPixels: RDD[(Int, Iterable[(Scene, Point, Pixel)])] = indexByFrame.groupByKey()
+
+    val pictures: RDD[(Int, Array[Array[Int]])] = indexedPixels.map(PixelsToWebM.toPicture(_))
     // Order the pixels in the frame in parallel
-    val sortedPixels: RDD[(Int, Seq[(Scene, Point, Pixel)])] = pixelsGroupedByFrame.mapValues(_.toSeq.sorted)
+    //val sortedPixels: RDD[(Int, Seq[(Scene, Point, Pixel)])] = pixelsGroupedByFrame.mapValues(_.toSeq.sorted)
     // Gather the pixels from the workers by frame
     // and encode MP4 file
-    val keys = sortedPixels.map(_._1).collect().sorted
-    val encoder = new PixmapToMP4()
-    for (key <- keys) {
-      val pixels: Array[(Int, Seq[(Scene, Point, Pixel)])] = sortedPixels.filter(_._1 == key).collect
-      encoder.encode(pixels(0)._2)
+
+    // Write a PPM file for debug
+    // writeFrame(indexedPixels.take(1)(0)._2.toSeq.sorted)
+
+    val encoder = new PixelsToWebM("t.webm", imageWidth, imageHeight)
+    var buffers = List[ByteBuffer]()
+    for (key <- 0 to numScenes - 1) {
+      val yuv = pictures.filter(_._1 == key).collect
+      val byteBuffer = encoder.encodeFrame(yuv(0)._2, imageWidth, imageHeight)
+      encoder.writeFile(byteBuffer)
     }
     encoder.finish
   }
