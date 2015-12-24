@@ -19,9 +19,9 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    val imageWidth = 400
-    val imageHeight = 400
-    val numScenes = 8
+    val imageWidth = 1280
+    val imageHeight = 720
+    val numScenes = 180
     val master = if (args.length > 0) args(0) else "local[4]"
     sparkParallelComputeScene(imageWidth, imageHeight, numScenes,
       mandelbulb, // use sphere for testing framework
@@ -33,6 +33,7 @@ object Main {
                                 master: String) = {
     BasicConfigurator.configure()
     Logger.getRootLogger.setLevel(Level.ERROR)
+    logger.setLevel(Level.INFO)
     val encoder = new PixelsToWebM("t.webm", imageWidth, imageHeight)
 
     var conf = new SparkConf().setAppName("mandelbulb").set("spark.executor.memory", "4G")
@@ -47,6 +48,7 @@ object Main {
     val xy: RDD[Point] = xDimension.cartesian(yDimension).map(_ match { case (x,y) => Point(x, y) })
     val sceneXY: RDD[(Scene, Point)] = scenes.cartesian(xy)
 
+    logger.info("March rays")
     // Compute the marched ray
     val rays: RDD[(Scene, Point, Some[MarchedRay])] = sceneXY.map(_ match {
       case (scene: Scene, point: Point) => {
@@ -55,6 +57,7 @@ object Main {
         (scene, point, ray)
       }})
 
+    logger.info("Color pixels from ray")
     // Color each ray into a pixel
     val pixels: RDD[(Scene, Point, Option[Pixel], Option[MarchedRay])] = rays.map(_ match {
       case (scene: Scene, point: Point, Some(ray)) => (scene, point, ColorComputer.computeColor(scene.lightDirection, ray, DE), Some(ray))
@@ -78,6 +81,7 @@ object Main {
     vp8Frames.persist()
 
     for (key <- 0 to numScenes - 1) {
+      logger.info("Encode scene frame %d of %d".format(key, numScenes))
       val nextFrameRDD: RDD[(Int, Int, Int, Array[Byte])] = vp8Frames.filter(_._1 == key)
       val nextFrame: Array[(Int, Int, Int, Array[Byte])] = nextFrameRDD.take(1)
       encoder.writeFile(nextFrame(0)._4)

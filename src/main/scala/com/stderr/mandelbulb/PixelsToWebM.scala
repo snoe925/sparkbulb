@@ -60,7 +60,7 @@ class PixelsToWebM(fileName: String, width: Int, height: Int) {
 
   def writeFile(bytes: Array[Byte]) = {
       val buffer = ByteBuffer.wrap(bytes)
-      videoTrack.addSampleEntry(buffer, ii *  10)
+      videoTrack.addSampleEntry(buffer, ii)
       ii = ii + 1
   }
 
