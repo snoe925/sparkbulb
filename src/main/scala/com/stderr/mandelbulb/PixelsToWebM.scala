@@ -11,7 +11,7 @@ import org.jcodec.containers.mkv.muxer.{MKVMuxerTrack, MKVMuxer}
 import org.jcodec.scale.RgbToYuv420p
 
 object PixelsToWebM {
-  def toPicture(pair:(Int, Iterable[(Scene, Point, Pixel)])): (Int, Array[Array[Int]]) = {
+  def toYUV420(pair: (Int, Iterable[(Scene, Point, Pixel)])): (Int, Int, Int, Array[Array[Int]]) = {
     val bits = pair._2
     val scene = bits.head._1
     // A red, green and blue color plane
@@ -28,7 +28,19 @@ object PixelsToWebM {
     val transform: RgbToYuv420p = new RgbToYuv420p(0, 0);
     val yuv = Picture.create(rgb.getWidth(), rgb.getHeight(), ColorSpace.YUV420)
     transform.transform(rgb, yuv)
-    (pair._1, yuv.getData)
+    (scene.frame, scene.imageWidth, scene.imageHeight, yuv.getData)
+  }
+
+  def toVP8(pair: (Int, Int, Int, Array[Array[Int]])): (Int, Int, Int, Array[Byte]) = {
+    val frameId = pair._1
+    val imageWidth = pair._2
+    val imageHeight = pair._3
+    val data = pair._4
+    val encoder: VP8Encoder = new VP8Encoder(10)
+    val buffer: ByteBuffer = ByteBuffer.allocate(imageWidth * imageHeight * 3);
+    val pic = new Picture(imageWidth, imageHeight, data, ColorSpace.YUV420)
+    encoder.encodeFrame(pic, buffer)
+    (frameId, imageWidth, imageHeight, encoder.encodeFrame(pic, buffer).array())
   }
 }
 
@@ -46,7 +58,8 @@ class PixelsToWebM(fileName: String, width: Int, height: Int) {
     encoder.encodeFrame(yuv, buf);
   }
 
-  def writeFile(buffer: ByteBuffer) = {
+  def writeFile(bytes: Array[Byte]) = {
+      val buffer = ByteBuffer.wrap(bytes)
       videoTrack.addSampleEntry(buffer, ii *  10)
       ii = ii + 1
   }
@@ -62,45 +75,4 @@ class PixelsToWebM(fileName: String, width: Int, height: Int) {
     muxer.mux(sink)
     sink.close()
   }
-
-  /*
-  private static void png2webm(String pattern, String out) throws IOException {
-    FileChannelWrapper sink = null;
-    try {
-      sink = NIOUtils.writableFileChannel(new File(out));
-      VP8Encoder encoder = new VP8Encoder(10); // qp
-      RgbToYuv420p transform = new RgbToYuv420p(0, 0);
-
-      MKVMuxer muxer = new MKVMuxer();
-      MKVMuxerTrack videoTrack = null;
-
-      int i;
-      for (i = 0; i < 10000; i++) {
-      File nextImg = new File(String.format(pattern, i));
-      if (!nextImg.exists())
-        continue;
-
-      BufferedImage rgb = ImageIO.read(nextImg);
-
-      if (videoTrack == null)
-        videoTrack = muxer.createVideoTrack(new Size(rgb.getWidth(), rgb.getHeight()), "V_VP8");
-
-      Picture yuv = Picture.create(rgb.getWidth(), rgb.getHeight(), ColorSpace.YUV420);
-      transform.transform(AWTUtil.fromBufferedImage(rgb), yuv);
-      ByteBuffer buf = ByteBuffer.allocate(rgb.getWidth() * rgb.getHeight() * 3);
-
-      ByteBuffer ff = encoder.encodeFrame(yuv, buf);
-
-      videoTrack.addSampleEntry(ff, i - 1);
-    }
-    if (i == 1) {
-      System.out.println("Image sequence not found");
-      return;
-    }
-    muxer.mux(sink);
-    } finally {
-      IOUtils.closeQuietly(sink);
-    }
-  }
-  */
 }

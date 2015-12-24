@@ -19,10 +19,10 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    val imageWidth = 800
-    val imageHeight = 800
-    val numScenes = 64
-    val master = if (args.length > 0) args(0) else "local[16]"
+    val imageWidth = 400
+    val imageHeight = 400
+    val numScenes = 8
+    val master = if (args.length > 0) args(0) else "local[4]"
     sparkParallelComputeScene(imageWidth, imageHeight, numScenes,
       mandelbulb, // use sphere for testing framework
       master)
@@ -33,16 +33,17 @@ object Main {
                                 master: String) = {
     BasicConfigurator.configure()
     Logger.getRootLogger.setLevel(Level.ERROR)
+    val encoder = new PixelsToWebM("t.webm", imageWidth, imageHeight)
 
-    var conf = new SparkConf().setAppName("mandelbulb")
+    var conf = new SparkConf().setAppName("mandelbulb").set("spark.executor.memory", "4G")
     // When running with spark submit, we do not need to set the master
     if (master.startsWith("local")) conf.setMaster(master)
     val sc = new SparkContext(conf)
 
     val scenes = sc.parallelize(0 to numScenes - 1, numScenes).map(Scene(imageWidth, imageHeight, _, numScenes))
     // 8 partitions is not optimized, depends on your compute power
-    val xDimension: RDD[Int] = sc.parallelize(0 to imageWidth - 1, Math.max(4, imageWidth / 100))
-    val yDimension: RDD[Int] = sc.parallelize(0 to imageHeight - 1, Math.max(4, imageHeight / 100))
+    val xDimension: RDD[Int] = sc.parallelize(0 to imageWidth - 1, Math.max(4, imageWidth / 200))
+    val yDimension: RDD[Int] = sc.parallelize(0 to imageHeight - 1, Math.max(4, imageHeight / 200))
     val xy: RDD[Point] = xDimension.cartesian(yDimension).map(_ match { case (x,y) => Point(x, y) })
     val sceneXY: RDD[(Scene, Point)] = scenes.cartesian(xy)
 
@@ -67,27 +68,19 @@ object Main {
       case (scene, point, _, _) => (scene.frame, (scene, point, Pixel(255, 0, 0)))
     })
 
-
     val indexedPixels: RDD[(Int, Iterable[(Scene, Point, Pixel)])] = indexByFrame.groupByKey()
+    // Convert the RGB pixels into YUV4:2:0 frames for video encoding
+    val yuvFrames: RDD[(Int, Int, Int, Array[Array[Int]])] = indexedPixels.map(PixelsToWebM.toYUV420(_))
+    val vp8Frames = yuvFrames.map(PixelsToWebM.toVP8(_))
 
-    // Keep this data as we will lookup by key
-    indexedPixels.persist()
+    // Save the frame as we are going to filter in a loop
+    // as we call filter, we want to avoid computing a frame twice
+    vp8Frames.persist()
 
-    val pictures: RDD[(Int, Array[Array[Int]])] = indexedPixels.map(PixelsToWebM.toPicture(_))
-    // Order the pixels in the frame in parallel
-    //val sortedPixels: RDD[(Int, Seq[(Scene, Point, Pixel)])] = pixelsGroupedByFrame.mapValues(_.toSeq.sorted)
-    // Gather the pixels from the workers by frame
-    // and encode MP4 file
-
-    // Write a PPM file for debug
-    // writeFrame(indexedPixels.take(1)(0)._2.toSeq.sorted)
-
-    val encoder = new PixelsToWebM("t.webm", imageWidth, imageHeight)
-    var buffers = List[ByteBuffer]()
     for (key <- 0 to numScenes - 1) {
-      val yuv: Seq[Array[Array[Int]]] = pictures.lookup(key)
-      val byteBuffer = encoder.encodeFrame(yuv.head, imageWidth, imageHeight)
-      encoder.writeFile(byteBuffer)
+      val nextFrameRDD: RDD[(Int, Int, Int, Array[Byte])] = vp8Frames.filter(_._1 == key)
+      val nextFrame: Array[(Int, Int, Int, Array[Byte])] = nextFrameRDD.take(1)
+      encoder.writeFile(nextFrame(0)._4)
     }
     encoder.finish
   }
