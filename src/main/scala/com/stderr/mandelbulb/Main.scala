@@ -22,7 +22,7 @@ object Main {
     val imageWidth = 1280
     val imageHeight = 720
     val numScenes = 180
-    val master = if (args.length > 0) args(0) else "local[4]"
+    val master = if (args.length > 0) args(0) else "local[*]"
     sparkParallelComputeScene(imageWidth, imageHeight, numScenes,
       mandelbulb, // use sphere for testing framework
       master)
@@ -73,8 +73,7 @@ object Main {
 
     val indexedPixels: RDD[(Int, Iterable[(Scene, Point, Pixel)])] = indexByFrame.groupByKey()
     // Convert the RGB pixels into YUV4:2:0 frames for video encoding
-    val yuvFrames: RDD[(Int, Int, Int, Array[Array[Int]])] = indexedPixels.map(PixelsToWebM.toYUV420(_))
-    val vp8Frames = yuvFrames.map(PixelsToWebM.toVP8(_))
+    val vp8Frames: RDD[(Int, Int, Int, Array[Byte])] = indexedPixels.map(PixelsToWebM.rgbToVP8(_))
 
     // Save the frame as we are going to filter in a loop
     // as we call filter, we want to avoid computing a frame twice

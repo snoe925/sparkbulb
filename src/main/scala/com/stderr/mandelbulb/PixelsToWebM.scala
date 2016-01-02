@@ -42,6 +42,14 @@ object PixelsToWebM {
     encoder.encodeFrame(pic, buffer)
     (frameId, imageWidth, imageHeight, encoder.encodeFrame(pic, buffer).array())
   }
+
+  /*
+   * Transform from pixels to VP8 compressed frame.
+   */
+  def rgbToVP8(pair: (Int, Iterable[(Scene, Point, Pixel)])): (Int, Int, Int, Array[Byte]) = {
+    val yuv = toYUV420(pair)
+    toVP8(yuv)
+  }
 }
 
 class PixelsToWebM(fileName: String, width: Int, height: Int) {
