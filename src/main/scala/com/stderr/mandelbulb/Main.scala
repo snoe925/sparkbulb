@@ -1,14 +1,11 @@
 package com.stderr.mandelbulb
 
 import java.io.{BufferedOutputStream, FileOutputStream}
-import java.nio.ByteBuffer
 
-import org.apache.log4j.{Level, Logger, BasicConfigurator}
-import org.apache.spark.SparkContext
-import org.apache.spark.SparkConf
+import org.apache.hadoop.io.BytesWritable
+import org.apache.log4j.{BasicConfigurator, Level, Logger}
+import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.storage.StorageLevel
-import org.jcodec.common.model.Picture
 
 import scala.reflect.io.File
 
@@ -19,24 +16,26 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    val imageWidth = 1280
-    val imageHeight = 720
+    val imageWidth = 640 // 1280
+    val imageHeight = 640 // 720
     val numScenes = 180
     val master = if (args.length > 0) args(0) else "local[*]"
+    val outputPath = "frames"
     sparkParallelComputeScene(imageWidth, imageHeight, numScenes,
       mandelbulb, // use sphere for testing framework
-      master)
+      master, outputPath)
+    logger.info("Gather files into single webm movie")
+    PixelsToWebM.combineFiles(imageWidth, imageHeight, File(outputPath), "t.webm")
   }
 
   def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int,
                                 numScenes: Int, DE: Vec3 => Double,
-                                master: String) = {
+                                master: String, outputPath: String) = {
     BasicConfigurator.configure()
     Logger.getRootLogger.setLevel(Level.ERROR)
     logger.setLevel(Level.INFO)
-    val encoder = new PixelsToWebM("t.webm", imageWidth, imageHeight)
 
-    var conf = new SparkConf().setAppName("mandelbulb").set("spark.executor.memory", "4G")
+    val conf = new SparkConf().setAppName("mandelbulb").set("spark.executor.memory", "4G")
     // When running with spark submit, we do not need to set the master
     if (master.startsWith("local")) conf.setMaster(master)
     val sc = new SparkContext(conf)
@@ -79,15 +78,13 @@ object Main {
     // as we call filter, we want to avoid computing a frame twice
     vp8Frames.persist()
 
-    for (key <- 0 to numScenes - 1) {
-      logger.info("Encode scene frame %d of %d".format(key, numScenes))
-      val nextFrameRDD: RDD[(Int, Int, Int, Array[Byte])] = vp8Frames.filter(_._1 == key)
-      val nextFrame: Array[(Int, Int, Int, Array[Byte])] = nextFrameRDD.take(1)
-      encoder.writeFile(nextFrame(0)._4)
-    }
-    encoder.finish
+    vp8Frames.map(tuple => (tuple._1.asInstanceOf[Integer], new BytesWritable(tuple._4)))
+      .saveAsHadoopFile(outputPath, classOf[Integer], classOf[Array[Byte]], classOf[IndexedByteBufferOutputFormat])
   }
 
+  /*
+   * For development and debugging write a ppm image
+   */
   def writeFrame(pixels: Seq[(Scene, Point, Pixel)]): Boolean = {
     if (pixels.isEmpty) false else {
       val (scene: Scene, _, _) = pixels.head
@@ -142,3 +139,4 @@ object Main {
   }
 
 }
+
