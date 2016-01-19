@@ -1,11 +1,12 @@
 package com.stderr.mandelbulb
 
-import java.io._
 import java.nio.ByteBuffer
 import java.util
 import java.util.zip.GZIPInputStream
 
 import org.apache.commons.io.FileUtils
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.jcodec.codecs.vpx.VP8Encoder
 import org.jcodec.common.SeekableByteChannel
 
@@ -14,7 +15,7 @@ import org.jcodec.common.model.{Size, ColorSpace, Picture}
 import org.jcodec.containers.mkv.muxer.{MKVMuxerTrack, MKVMuxer}
 import org.jcodec.scale.RgbToYuv420p
 
-import scala.reflect.io.{Path, File}
+import scala.collection.mutable.ListBuffer
 
 object PixelsToWebM {
   def toYUV420(pair: (Int, Iterable[(Scene, Point, Pixel)])): (Int, Int, Int, Array[Array[Int]]) = {
@@ -66,39 +67,34 @@ object PixelsToWebM {
   /*
    * Convert multiple VP8 encoding into webm
    */
-  def combineFiles(width: Int, height: Int, directory: File, outputFile: String): Unit = {
-    val encoder = new PixelsToWebM(outputFile, width, height)
-    val files = directory.toDirectory.files
-    val filter = files.filter(_.name.endsWith(".vp8.gz"))
-    val sorted = filter.toList.sortWith(_.name < _.name)
+  def combineFiles(width: Int, height: Int, directory: String, outputFile: String, hadoopConfig: Configuration): Unit = {
+    val encoder = new PixelsToWebM(outputFile, width, height, hadoopConfig)
+    val path = new Path(directory)
+    val fs = path.getFileSystem(hadoopConfig)
+    val files = new ListBuffer[Path]()
+    val iter = fs.listFiles(path, false)
+    while (iter.hasNext()) {
+      val p = iter.next().getPath()
+      if (p.getName.endsWith(".vp8.gz")) files += p
+    }
+    val sorted = files.sortWith(_.getName < _.getName)
     for (file <- sorted) {
-      val is = new GZIPInputStream(file.toFile.inputStream())
+      val is = new GZIPInputStream(fs.open(file))
       val bytes = org.apache.commons.io.IOUtils.toByteArray(is)
       is.close()
       encoder.writeFile(bytes)
     }
     encoder.finish
   }
-
-  /*
-   * Convert multiple VP8 encodings into a webm
-   */
-  def main(args: Array[String]): Unit = {
-    combineFiles(300, 300, File("frames"), "t.webm")
-    /*
-    val width = Integer.parseInt(args(0))
-    val height = Integer.parseInt(args(1))
-    val directory = File(args(2))
-    val outputFile = args(3)
-    combineFiles(width, height, directory, outputFile)
-    */
-  }
 }
 
-class PixelsToWebM(fileName: String, width: Int, height: Int) {
+class PixelsToWebM(fileName: String, width: Int, height: Int, hadoopConfig: Configuration) {
 
   val encoder: VP8Encoder = new VP8Encoder(10);
-  val sink: SeekableByteChannel = NIOUtils.writableFileChannel(new java.io.File(fileName))
+//  val sink: SeekableByteChannel = NIOUtils.writableFileChannel(new java.io.File(fileName))
+  val path = new Path(fileName)
+  val out = path.getFileSystem(hadoopConfig).create(path)
+  val sink: SeekableByteChannel = new FakeSeekableByteChannel(out)
   val muxer: MKVMuxer = new MKVMuxer();
   val videoTrack: MKVMuxerTrack = muxer.createVideoTrack(new Size(width, height), "V_VP8")
   var ii: Int = 0

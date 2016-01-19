@@ -3,6 +3,7 @@ package com.stderr.mandelbulb
 import java.io.{BufferedOutputStream, FileOutputStream}
 
 import org.apache.hadoop.io.BytesWritable
+import org.apache.hadoop.fs.Path
 import org.apache.log4j.{BasicConfigurator, Level, Logger}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.rdd.RDD
@@ -16,21 +17,20 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    val imageWidth = 640 // 1280
-    val imageHeight = 640 // 720
-    val numScenes = 180
+    val imageWidth = 1280
+    val imageHeight = 720
+    val numScenes = 360
     val master = if (args.length > 0) args(0) else "local[*]"
-    val outputPath = "frames"
+    val outputPath = if (args.length > 1) args(1) else "frames"
+   
     sparkParallelComputeScene(imageWidth, imageHeight, numScenes,
       mandelbulb, // use sphere for testing framework
       master, outputPath)
-    logger.info("Gather files into single webm movie")
-    PixelsToWebM.combineFiles(imageWidth, imageHeight, File(outputPath), "t.webm")
   }
 
   def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int,
                                 numScenes: Int, DE: Vec3 => Double,
-                                master: String, outputPath: String) = {
+                                master: String, outputDirectory: String) = {
     BasicConfigurator.configure()
     Logger.getRootLogger.setLevel(Level.ERROR)
     logger.setLevel(Level.INFO)
@@ -39,6 +39,13 @@ object Main {
     // When running with spark submit, we do not need to set the master
     if (master.startsWith("local")) conf.setMaster(master)
     val sc = new SparkContext(conf)
+    
+    val gsBucket = sc.hadoopConfiguration.get("fs.gs.system.bucket")
+    val outputPath = if (gsBucket != null) s"gs://$gsBucket/$outputDirectory" else outputDirectory
+    
+    // Clean up existing output
+    val path = new Path(outputPath)
+    path.getFileSystem(sc.hadoopConfiguration).delete(path, true)
 
     val scenes = sc.parallelize(0 to numScenes - 1, numScenes).map(Scene(imageWidth, imageHeight, _, numScenes))
     // 8 partitions is not optimized, depends on your compute power
@@ -80,6 +87,10 @@ object Main {
 
     vp8Frames.map(tuple => (tuple._1.asInstanceOf[Integer], new BytesWritable(tuple._4)))
       .saveAsHadoopFile(outputPath, classOf[Integer], classOf[Array[Byte]], classOf[IndexedByteBufferOutputFormat])
+
+    logger.info("Gather files into single webm movie")
+    PixelsToWebM.combineFiles(imageWidth, imageHeight,
+        outputPath, outputPath + "/t.webm", sc.hadoopConfiguration)
   }
 
   /*

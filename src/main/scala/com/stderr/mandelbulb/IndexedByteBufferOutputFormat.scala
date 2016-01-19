@@ -4,6 +4,8 @@ import java.io.DataOutputStream
 
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.io.compress.GzipCodec
+import org.apache.hadoop.io.compress.CompressionCodecFactory
+import org.apache.hadoop.io.compress.CompressionCodec
 import org.apache.hadoop.io.{BytesWritable, NullWritable}
 import org.apache.hadoop.mapred.lib.MultipleOutputFormat
 import org.apache.hadoop.mapred.{FileOutputFormat, JobConf, RecordWriter, Reporter}
@@ -26,7 +28,8 @@ class ByteRecordWriter[K, V](fileSystem: FileSystem, jobConf: JobConf) extends R
     val ii = key.asInstanceOf[Integer].intValue()
     val name = "%08d.vp8.gz".format(ii)
     val path = fileSystem.create(new Path(outputPath, name))
-    val codec = new GzipCodec()
+    val ccf: CompressionCodecFactory = new CompressionCodecFactory(jobConf)
+    val codec: CompressionCodec = ccf.getCodecByClassName(classOf[GzipCodec].getName());
     val out = new DataOutputStream(codec.createOutputStream(path))
     val bw = value.asInstanceOf[BytesWritable]
     out.write(bw.copyBytes())
