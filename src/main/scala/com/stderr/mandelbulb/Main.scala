@@ -17,9 +17,9 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    val imageWidth = 1280
-    val imageHeight = 720
-    val numScenes = 360
+    val imageWidth = 640 //1280
+    val imageHeight = 480 //720
+    val numScenes = 180
     val master = if (args.length > 0) args(0) else "local[*]"
     val outputPath = if (args.length > 1) args(1) else "frames"
    
