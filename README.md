@@ -4,4 +4,4 @@ An tiny example Apache Spark program for presentation at the Houston Spark Meetu
 
 This was converted to Scala from mandelbulb.js http://royvanrijn.com/blog/2012/07/introducing-mandelbulb-js/.
 
-Run "mvn verify" to generate portable pixmaps.
+Run "mvn verify" to generate a webm movie. Open frames/t.webm after the run.
