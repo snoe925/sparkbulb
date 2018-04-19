@@ -4,9 +4,10 @@ import java.io.{BufferedOutputStream, FileOutputStream}
 
 import org.apache.hadoop.io.BytesWritable
 import org.apache.hadoop.fs.Path
-import org.apache.log4j.{BasicConfigurator, Level, Logger}
-import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.log4j.Logger
+import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SparkSession
 
 import scala.reflect.io.File
 
@@ -17,28 +18,28 @@ object Main {
   val logger = Logger.getLogger(Main.getClass)
 
   def main(args: Array[String]):Unit = {
-    val imageWidth = 640 //1280
-    val imageHeight = 480 //720
+    val imageWidth = 800
+    val imageHeight = 500
     val numScenes = 180
-    val master = if (args.length > 0) args(0) else "local[*]"
-    val outputPath = if (args.length > 1) args(1) else "frames"
+    val outputPath = "frames"
    
     sparkParallelComputeScene(imageWidth, imageHeight, numScenes,
       mandelbulb, // use sphere for testing framework
-      master, outputPath)
+      outputPath)
   }
 
   def sparkParallelComputeScene(imageWidth: Int, imageHeight: Int,
                                 numScenes: Int, DE: Vec3 => Double,
-                                master: String, outputDirectory: String) = {
-    BasicConfigurator.configure()
-    Logger.getRootLogger.setLevel(Level.ERROR)
-    logger.setLevel(Level.INFO)
-
-    val conf = new SparkConf().setAppName("mandelbulb").set("spark.executor.memory", "4G")
-    // When running with spark submit, we do not need to set the master
-    if (master.startsWith("local")) conf.setMaster(master)
-    val sc = new SparkContext(conf)
+                                outputDirectory: String) = {
+    var builder = SparkSession.builder
+        .appName("mandelbulb")
+    val master = sys.env.get("MASTER")
+    if (master.isDefined) {
+      builder = builder.master(master.get)
+        .config("spark.executor.memory", "4G")
+    }
+    val spark = builder.getOrCreate()
+    val sc = spark.sparkContext
     
     val gsBucket = sc.hadoopConfiguration.get("fs.gs.system.bucket")
     val outputPath = if (gsBucket != null) s"gs://$gsBucket/$outputDirectory" else outputDirectory
