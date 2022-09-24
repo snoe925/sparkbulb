@@ -9,3 +9,7 @@ Run "env MASTER=local[*] mvn verify" to generate a webm movie. Open frames/t.web
 # Why?
 
 This is intended to be a more fun way to learn Spark than "word count". :^)
+
+# Presentation
+
+Some revealjs slides https://snoe925.github.io/sparkbulb
